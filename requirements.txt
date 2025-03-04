@@ -34,3 +34,5 @@ sqlalchemy
 loguru
 RapidFuzz
 requests
+python-dotenv
+email_validator

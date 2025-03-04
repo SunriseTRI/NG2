@@ -1,11 +1,13 @@
+
 import re
 import secrets
 import string
+import logging
+from email_validator import validate_email, EmailNotValidError
 from aiogram.fsm.state import State, StatesGroup
 
-from aiogram.fsm.state import State, StatesGroup
+logger = logging.getLogger(__name__)
 
-# Состояния для регистрации
 class RegistrationStates(StatesGroup):
     name = State()
     surname = State()
@@ -15,12 +17,18 @@ class RegistrationStates(StatesGroup):
     user_type = State()
 
 def validate_phone(phone: str) -> bool:
-    return re.match(r"^\+\d{10,12}$", phone) is not None
+    pattern = r"^\+\d{1,3}\d{10}$"  # Обновленный паттерн для телефона
+    return re.match(pattern, phone) is not None
 
 def validate_email(email: str) -> bool:
-    return re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email) is not None
+    try:
+        validate_email(email)
+        return True
+    except EmailNotValidError:
+        return False
 
-def generate_password(length=8) -> str:
+def generate_password(length=12) -> str:  # Увеличенная длина пароля
     chars = string.ascii_letters + string.digits
     return ''.join(secrets.choice(chars) for _ in range(length))
+
 command_functions = {}
