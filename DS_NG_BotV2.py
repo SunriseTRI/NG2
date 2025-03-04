@@ -15,6 +15,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton,  InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from database import create_tables, insert_user, merge_faq_from_excel, update_faq_from_excel, get_all_faq_entries, insert_faq_entry
 from registration import validate_phone, validate_email, generate_password, RegistrationStates
@@ -74,10 +75,30 @@ def find_similar_faq_entries(user_question: str, threshold: float = 85.0):
     similar.sort(key=lambda x: x[2], reverse=True)
     return similar
 
+
+
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     logger.info(f"User {message.from_user.full_name} started the bot.")
-    await message.answer("Привет! Я бот-помощник. Используйте /help для списка команд.")
+    # Создаем клавиатуру с двумя рядами кнопок
+    help_keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="/help"), KeyboardButton(text="/reg")],
+            [KeyboardButton(text="/update_faq"), KeyboardButton(text="/rewrite_faq")]
+        ],
+        resize_keyboard=True
+    )
+
+    await message.answer(
+        "Привет! Я бот-помощник. Выберите одну из команд:",
+        reply_markup=help_keyboard
+    )
+
+
+# @dp.message(CommandStart())
+# async def command_start_handler(message: Message) -> None:
+#     logger.info(f"User {message.from_user.full_name} started the bot.")
+#     await message.answer("Привет! Я бот-помощник. Используйте /help для списка команд.")
 
 @dp.message(Command('help'))
 async def help_handler(message: Message) -> None:
@@ -128,14 +149,35 @@ async def process_phone(message: Message, state: FSMContext):
     else:
         await message.answer("Введите корректный номер телефона!")
 
+
 @dp.message(RegistrationStates.email)
 async def process_email(message: Message, state: FSMContext):
     if validate_email(message.text.strip()):
         await state.update_data(email=message.text.strip())
-        await message.answer("Выберите тип пользователя (patient, worker, admin, creator):")
+        # Создаем клавиатуру с вариантами "patient", "worker" и "admin"
+        user_type_keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="patient"), KeyboardButton(text="worker"), KeyboardButton(text="admin")]
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await message.answer(
+            "Выберите тип пользователя (patient, worker, admin, creator):",
+            reply_markup=user_type_keyboard
+        )
         await state.set_state(RegistrationStates.user_type)
     else:
         await message.answer("Введите корректный email!")
+
+# @dp.message(RegistrationStates.email)
+# async def process_email(message: Message, state: FSMContext):
+#     if validate_email(message.text.strip()):
+#         await state.update_data(email=message.text.strip())
+#         await message.answer("Выберите тип пользователя (patient, worker, admin, creator):")
+#         await state.set_state(RegistrationStates.user_type)
+#     else:
+#         await message.answer("Введите корректный email!")
 
 @dp.message(RegistrationStates.user_type)
 async def process_user_type(message: Message, state: FSMContext):
@@ -194,6 +236,7 @@ async def process_confirmation(message: Message, state: FSMContext):
     await state.clear()
 
 # Основной обработчик текстовых сообщений
+
 @dp.message()
 async def echo_handler(message: Message, state: FSMContext) -> None:
     user_question = message.text.strip()
@@ -212,7 +255,7 @@ async def echo_handler(message: Message, state: FSMContext) -> None:
                 f"Найден FAQ:\nВопрос: {faq_q}\nОтвет: {faq_a}"
             )
             await message.answer(response)
-            return  # Завершаем обработку, подтверждение не требуется
+            return
 
         # Если совпадения есть, но они не идеальные, выводим все варианты и запрашиваем подтверждение
         response_lines = [
@@ -223,10 +266,7 @@ async def echo_handler(message: Message, state: FSMContext) -> None:
             response_lines.append(
                 f"{idx}. Вопрос: {faq_q}\n   Ответ: {faq_a}\n   Похожесть: {sim:.1f}%"
             )
-        response_lines.append("\nВаш вопрос был обработан таким образом. Всё ли корректно? (да/нет)")
-        await state.update_data(original_question=user_question)
-        await state.set_state(FAQConfirmation.confirm)
-        await message.answer("\n".join(response_lines))
+        response_lines.append("\nВаш вопрос был обработан таким образом. Всё ли корректно?")
     else:
         # Если совпадений не найдено, используем NLP-модель для генерации ответа
         nlp_answer = await generate_response(user_question)
@@ -234,11 +274,82 @@ async def echo_handler(message: Message, state: FSMContext) -> None:
             f"Пользователь: {username} спросил:\n\"{user_question}\"\n",
             "Ответ, сгенерированный на основе NLP-модели:",
             nlp_answer,
-            "\nВаш вопрос был обработан таким образом. Всё ли корректно? (да/нет)"
+            "\nВаш вопрос был обработан таким образом. Всё ли корректно?"
         ]
-        await state.update_data(original_question=user_question)
-        await state.set_state(FAQConfirmation.confirm)
-        await message.answer("\n".join(response_lines))
+
+    # Создаем inline-клавиатуру с кнопками "Да" и "Нет"
+    inline_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да", callback_data="faq_confirm_yes"),
+                InlineKeyboardButton(text="❌ Нет", callback_data="faq_confirm_no")
+            ]
+        ]
+    )
+
+    await state.update_data(original_question=user_question)
+    await state.set_state(FAQConfirmation.confirm)
+    await message.answer("\n".join(response_lines), reply_markup=inline_keyboard)
+
+
+@dp.callback_query(lambda callback_query: callback_query.data in ["faq_confirm_yes", "faq_confirm_no"])
+async def process_faq_confirmation(callback_query: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    original_question = data.get("original_question", "")
+    if callback_query.data == "faq_confirm_yes":
+        await callback_query.message.answer("Рад, что смог помочь!")
+    elif callback_query.data == "faq_confirm_no":
+        insert_faq_entry(original_question, "Необходим ответ от @админ")
+        await callback_query.message.answer("Ваш вопрос внесён в базу для дальнейшего рассмотрения. Спасибо за отзыв!")
+    await state.clear()
+    await callback_query.answer()
+
+# @dp.message()
+# async def echo_handler(message: Message, state: FSMContext) -> None:
+#     user_question = message.text.strip()
+#     username = message.from_user.full_name
+#
+#     # Ищем похожие записи FAQ (с порогом 85%)
+#     similar_faqs = find_similar_faq_entries(user_question, threshold=85.0)
+#
+#     if similar_faqs:
+#         # Если есть точное совпадение (100%), выдаём его сразу
+#         exact_matches = [entry for entry in similar_faqs if entry[2] == 100]
+#         if exact_matches:
+#             faq_q, faq_a, sim = exact_matches[0]
+#             response = (
+#                 f"Пользователь: {username} спросил:\n\"{user_question}\"\n\n"
+#                 f"Найден FAQ:\nВопрос: {faq_q}\nОтвет: {faq_a}"
+#             )
+#             await message.answer(response)
+#             return  # Завершаем обработку, подтверждение не требуется
+#
+#         # Если совпадения есть, но они не идеальные, выводим все варианты и запрашиваем подтверждение
+#         response_lines = [
+#             f"Пользователь: {username} спросил:\n\"{user_question}\"\n",
+#             "Найдены похожие FAQ:"
+#         ]
+#         for idx, (faq_q, faq_a, sim) in enumerate(similar_faqs, start=1):
+#             response_lines.append(
+#                 f"{idx}. Вопрос: {faq_q}\n   Ответ: {faq_a}\n   Похожесть: {sim:.1f}%"
+#             )
+#         response_lines.append("\nВаш вопрос был обработан таким образом. Всё ли корректно? (да/нет)")
+#
+#         await state.update_data(original_question=user_question)
+#         await state.set_state(FAQConfirmation.confirm)
+#         await message.answer("\n".join(response_lines))
+#     else:
+#         # Если совпадений не найдено, используем NLP-модель для генерации ответа
+#         nlp_answer = await generate_response(user_question)
+#         response_lines = [
+#             f"Пользователь: {username} спросил:\n\"{user_question}\"\n",
+#             "Ответ, сгенерированный на основе NLP-модели:",
+#             nlp_answer,
+#             "\nВаш вопрос был обработан таким образом. Всё ли корректно? (да/нет)"
+#         ]
+#         await state.update_data(original_question=user_question)
+#         await state.set_state(FAQConfirmation.confirm)
+#         await message.answer("\n".join(response_lines))
 
     # # Ищем похожие записи FAQ (с порогом 85%)
     # similar_faqs = find_similar_faq_entries(user_question, threshold=85.0)
